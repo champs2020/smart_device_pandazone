@@ -1,4 +1,4 @@
-/* * Data converted from C:/Espressif/frameworks/prototipo/mesh/main/mosquitto.org.crt
+/* * Data converted from C:/Espressif/frameworks/prototipo/smart_device_pandazone/main/mosquitto.org.crt
  * (null byte appended)
  */
 .data

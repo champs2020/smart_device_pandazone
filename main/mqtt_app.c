@@ -53,11 +53,11 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             }
 
             // Fazendo subscribe para obter todos os dispositivos cadastradados da edificação
-            if (esp_mqtt_client_subscribe(s_client, "ufcg/cg_sede/caa/list_mac_devices", 0) < 0)
-            {
-                ESP_LOGE(TAG, "MAC ADRESS NOT SUBSCRIBED. RETRYING ...");
-                esp_mqtt_client_disconnect(s_client);
-            }
+            // if (esp_mqtt_client_subscribe(s_client, "ufcg/cg_sede/caa/list_mac_devices", 0) < 0)
+            // {
+            //     ESP_LOGE(TAG, "MAC ADRESS NOT SUBSCRIBED. RETRYING ...");
+            //     esp_mqtt_client_disconnect(s_client);
+            // }
                     
             
             // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/#", 0);
@@ -95,7 +95,7 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             {   
                 if ((int)(event->topic[0]) == 109) // (m == 7) = true
                 {
-                    ESP_LOGW("MQTT","Enviando o código de área para o dispositivo: %.*s", event->data_len, event->data);
+                    ESP_LOGW("MQTT","event->data_len: %d, Enviando o código de área (content): %.*s", strlen(event->data), event->data_len, event->data);
                     send_credencial_area(event->topic, event->data, event->data_len);
                 }
             }

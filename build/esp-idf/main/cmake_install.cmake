@@ -1,4 +1,4 @@
-# Install script for directory: C:/Espressif/frameworks/prototipo/mesh/main
+# Install script for directory: C:/Espressif/frameworks/prototipo/smart_device_pandazone/main
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

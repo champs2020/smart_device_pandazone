@@ -39,7 +39,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("C:/Espressif/frameworks/prototipo/mesh/build/esp-idf/soc/esp32/cmake_install.cmake")
+  include("C:/Espressif/frameworks/prototipo/smart_device_pandazone/build/esp-idf/soc/esp32/cmake_install.cmake")
 
 endif()
 

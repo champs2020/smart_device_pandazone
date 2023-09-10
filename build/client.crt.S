@@ -1,4 +1,4 @@
-/* * Data converted from C:/Espressif/frameworks/prototipo/mesh/main/client.crt
+/* * Data converted from C:/Espressif/frameworks/prototipo/smart_device_pandazone/main/client.crt
  * (null byte appended)
  */
 .data

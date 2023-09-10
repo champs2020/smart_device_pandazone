@@ -1,4 +1,4 @@
-/* * Data converted from C:/Espressif/frameworks/prototipo/mesh/build/esp-idf/mbedtls/x509_crt_bundle
+/* * Data converted from C:/Espressif/frameworks/prototipo/smart_device_pandazone/build/esp-idf/mbedtls/x509_crt_bundle
  */
 .data
 .section .rodata.embedded

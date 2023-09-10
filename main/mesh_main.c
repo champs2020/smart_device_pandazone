@@ -13,6 +13,13 @@
 #include "mqtt_app.h"
 #include "dht22.h"
 #include "sct013-30a.h"
+
+// trecho de libs do IR
+#include "driver/rmt.h"
+#include "midea_ir.h"
+
+static rmt_channel_t example_tx_channel = 0 /*CONFIG_EXAMPLE_RMT_TX_CHANNEL*/;
+
 /*******************************************************
  *                Macros
  *******************************************************/
@@ -20,21 +27,19 @@
 /*******************************************************
  *                Constants
  *******************************************************/
-#define WIFI_SSID "brisa-2368781"
-#define WIFI_PASS  "vpelk5y9"
 
 // #define WIFI_SSID "brisa-3287883"
 // #define WIFI_PASS  "2hs5t788"
  
-// #define WIFI_SSID "tplinkcaa"
-// #define WIFI_PASS  "contadorcaa123"
+#define WIFI_SSID "tplinkcaa"
+#define WIFI_PASS  "contadorcaa123"
+
 unsigned char mac_base[6];
 char str_mac_base[13] = "";
 
 #define LED_BULTIN 2
-#define GPIO_SCT013 5
   // --- thermal confort solution
-#define GPIO_DHT22 27
+#define GPIO_DHT22 33 // D33
 
 #define RX_SIZE          (512)
 #define TX_SIZE          (512)
@@ -104,6 +109,7 @@ uint8_t estado = 0;
 xSemaphoreHandle semaphorBinarioA;
 xSemaphoreHandle semaphorBinarioB;
 
+
 // 3 fila de interrupção para os 3 sensores de presença
 xQueueHandle fila_ittr_presenca_pin_1;
 xQueueHandle fila_ittr_presenca_pin_1;
@@ -123,6 +129,10 @@ static int size_data_mqtt = 0;
 /*******************************************************
  *                Function Definitions
  *******************************************************/
+
+
+xQueueHandle fila_comando_komeco;
+static u_int8_t air_on_off = 0; // estado
 
 // Função que inicializa os pinos para a função blink_command()
 void init_blink_command()
@@ -151,7 +161,7 @@ void send_data_mqtt(char *dispTipo, char *dispNome, char *dispValor, char *area)
 {
     // if (strlen(building_area_credencial) == 0)
     // {
-        // Formato [JSON] => {"\"{Nome aqui}\"": {valor númerico aqui}}
+        // Formato [JSON] => {"\"{Nome aqui}\"": {valor numerico aqui}}
         strcpy(format_msg_mqtt, ""); //Zerar endereço
         sprintf(format_msg_mqtt, "%s/%s/%s/%s|{\"%s\":%s}",building_id, area, dispTipo, dispNome, dispNome, dispValor);
     
@@ -212,10 +222,10 @@ void send_credencial_area(char *topic, char *data, int *len_data)
     int lenght_data = len_data;
     // Formato [JSON] => {"\"{Nome aqui}\"": {valor númerico aqui}}
     strcpy(format_msg_mqtt, ""); //Zerar endereço
-    sprintf(format_msg_mqtt, "%s|%.*s", topic, lenght_data, data);
+    sprintf(format_msg_mqtt, "%.*s|%.*s", 16, topic, lenght_data, data);
     
-    printf("\n Mac string: %s, total len_data: %d\n", topic, lenght_data);
-    printf("\n format_msg_mqtt string: %s\n", format_msg_mqtt);
+    printf("\n Topic string: %.*s, total len_data: %d\n", 16, topic, lenght_data);
+    printf("\n format_msg_mqtt string: %.*s\n", lenght_data+17, format_msg_mqtt);
 
     uint8_t mac_adrr[6] = {0x00,0x00,0x00,0x00,0x00,0x00};
     uint8_t hex_num = 0;
@@ -237,7 +247,7 @@ void send_credencial_area(char *topic, char *data, int *len_data)
     esp_err_t err_mac;
     mesh_data_t data_mac_device;
     data_mac_device.data = format_msg_mqtt;
-    data_mac_device.size = len_data+17;
+    data_mac_device.size = lenght_data+17;
     data_mac_device.proto = MESH_PROTO_BIN;
     data_mac_device.tos = MESH_TOS_P2P;
     is_running = true;
@@ -266,6 +276,13 @@ void DHT_task(void *pvParameter)
     gpio_pad_select_gpio(GPIO_DHT22);    
     gpio_set_direction(GPIO_DHT22, GPIO_MODE_INPUT);
 
+    // Configurar o resistor do Pull-up por segurança
+    gpio_pulldown_en(GPIO_DHT22);
+    gpio_pulldown_en(GPIO_DHT22);
+    // Desabilitar o resistor do Pull-up por segurança
+    gpio_pullup_dis(GPIO_DHT22);
+    gpio_pullup_dis(GPIO_DHT22); 
+
     setDHTgpio(GPIO_DHT22);
     printf( "Starting DHT Task\n\n");
     int fire_alert_count = -1, umidity_alert_count = -1; // Na primeira comparação de ajuste vai pra zero
@@ -275,7 +292,7 @@ void DHT_task(void *pvParameter)
     static float heatIndex = 0;
     int isOk;
     while(1) {
-        vTaskDelay( 5000 / portTICK_RATE_MS );
+        vTaskDelay( 20000 / portTICK_RATE_MS );
         setDHTgpio(GPIO_DHT22); // Tem q alimentar os dois cabos usb/fontes
         isOk = readDHT(); // causando stackoverflow
         errorHandler(isOk); // Checa se não há problema pra a leitura
@@ -318,9 +335,8 @@ void DHT_task(void *pvParameter)
         sprintf(heatIndexString, "%.2f", heatIndex);
 
         send_data_mqtt("sensor", "umidade", umiString, building_area_credencial);
-        vTaskDelay( 1000 / portTICK_RATE_MS );
         
-        send_data_mqtt("sensor", "temperatura", tempString, building_area_credencial);
+        send_data_mqtt("sensor", "temperatura.", tempString, building_area_credencial);
 
         send_data_mqtt("sensor", "indice_calor", heatIndexString, building_area_credencial);
 
@@ -600,7 +616,7 @@ void saying_in_out()
     {
         if (last_detect == 1) // Se o último detectado for sensor 1, pisca 1 vezes
         {
-            blink_command(1); // 2 piscadas
+            blink_command(1); // 1 piscadas
         }
         else if (last_detect == 21) // Se o último detectado for sensor 2, pisca 2 vezes
         {
@@ -655,16 +671,16 @@ void saying_in_out()
 void SCT013_task(void *pvParameter)
 {
     float corrente_float[3];
-    char salas[3][10] = {"sala303","sala304", "sala306"};
+    char salas[3][10] = {"sala303","sala305", "sala306"};
     init_SCT013();
     while (1)
     {
         vTaskDelay( 3000 / portTICK_RATE_MS ); // Frequência de envio
         get_SCT023_current(&corrente_float); 
         char corrente_string[7] = "";
-        for (int i = 0; i < 1/*3*/; i++)
+        for (int i = 0; i < 3/*1*/; i++)
         {
-            sprintf(corrente_string, "%.4f", corrente_float[2]/*[i]*/);
+            sprintf(corrente_string, "%.4f", corrente_float[i]/*[2]*/);
             send_data_mqtt("sensor", "corrente", corrente_string, salas[i]);
             vTaskDelay( 300 / portTICK_RATE_MS );
 
@@ -673,13 +689,51 @@ void SCT013_task(void *pvParameter)
     }
 }
 
+void air_control(void *pvParameter)
+{
+    int komeco_acao;
+    // Início código reservado para IR send
+    ESP_LOGI("KOMECO", "IInfraRed Control INIT fast config");
+
+    rmt_config_t rmt_tx_config = RMT_DEFAULT_CONFIG_TX_MIDEA(18 /*CONFIG_EXAMPLE_RMT_TX_GPIO*/, example_tx_channel);
+    rmt_config(&rmt_tx_config);
+    rmt_driver_install(example_tx_channel, 0, 0);
+
+    // Final código reservado
+
+    while (1)
+    {
+        if (xQueueReceive(fila_comando_komeco, &komeco_acao, portMAX_DELAY))
+        {
+            blink_command(3); // 3 piscadas
+
+            if (komeco_acao == 1)
+            {
+                
+                ESP_LOGW("KOMECO", "Turning ON air condicioning");
+                komeco_ir_on();
+
+            } else 
+            {
+                ESP_LOGW("KOMECO", "Turning OFF air condicioning");
+                komeco_ir_off();
+            }
+        }
+
+    }
+    
+}
+
 void init_panda_tasks()
 {
+    fila_comando_komeco = xQueueCreate(2, sizeof(int));
+
     xTaskCreate(&DHT_task, "ReadTemperature&Umidity", 2048, NULL, 2, NULL);
     // xTaskCreate(&SCT013_task, "ReadCurrent", 3072, NULL, 2, NULL);
     // xTaskCreate(&saying_in_out, "AvisoEntradaSaida", 2048, NULL, 1, NULL);
     // xTaskCreate(&procress_presence, "TrataPresenca", 2048, NULL, 1, NULL);
     // xTaskCreate(&regulator_master_hc, "ReguladorHC501", 2048, NULL, 1, NULL);
+    //xTaskCreate(&air_control, "ac_control", 4096, NULL, 2, NULL);
 }
 
 void esp_mesh_p2p_rx_main(void *arg)
@@ -739,14 +793,46 @@ void esp_mesh_p2p_rx_main(void *arg)
         int len_mqtt_content = strlen(mqtt_content);
 
         printf("\n len=%d, mqtt_topic=%s, mac_base=%s, mqtt_content=%s\n", len_mqtt_topic, mqtt_topic, str_mac_base, mqtt_content);
-        
+
         // Toda mensagem que chega é avalida pra chechar se é requisição de subscribe de algum dispositivo para credenciamento
         if (len_mqtt_topic == 16 && mqtt_topic[0] == 109) // mqtt_topic == mac/XXxxXXxxXXxx => 16(4+12) caracteres
         {
-            ESP_LOGW("CHECK","AREA DE CREDENCIAL! \n");
+            ESP_LOGW("CHECK","AREA DE CREDENCIAL!, content length: %d \n", len_mqtt_content);
 
-            
-            if (len_mqtt_content == 6) // JSON vazio ocupa 6 caracteres da formatação
+            ////////////////////////////////////////////
+            if (len_mqtt_content == 21) // se len_mqtt_topic == errado7+6 && mqtt_topic[0] == "c"
+            {
+                ESP_LOGW("KOMECO","COMANDO!");
+                ESP_LOGW("KOMECO","mqtt_content: %s", mqtt_content);
+                // count_for_cred => count para obter apenas os caracteres de credencial no laço for
+                for (int count_for_cred = 0, i = 0; i < len_mqtt_content; i++)
+                {
+                    if (mqtt_content[i] == 34) // Aqui indentifica " (aspas) pelo código da tabela ASCCII
+                    {
+                        count_for_cred++;
+                        if(count_for_cred == 4) printf("\ncatch\n");
+                    }
+                    // Quando chega na 4º aspas encerra a leitura atribuindo a string da posição seguinte da aspas e sai do for com break.
+                    if(count_for_cred == 4) 
+                    {
+                        ESP_LOGW("KOMECO","mqtt_content: %c", mqtt_content[i-1]);
+                        if (mqtt_content[i-1] == 49)
+                        {
+                            air_on_off = 1;
+                            xQueueSendFromISR(fila_comando_komeco, &air_on_off , NULL);
+                        } else 
+                        {
+                            air_on_off = 0;
+                            xQueueSendFromISR(fila_comando_komeco, &air_on_off , NULL);
+                        }
+                        break;
+                    } 
+                    
+                }
+            }
+            ///////////////////////////////////////////
+
+            if (len_mqtt_content == 6) // JSON vazio ocupa 6 caracteres da formatação => {"0":}
             {
                 vTaskDelay(5000 / portTICK_RATE_MS);
                 if ( mqtt_app_subscribe(mqtt_topic, 1) > -1)
@@ -763,7 +849,7 @@ void esp_mesh_p2p_rx_main(void *arg)
                     }
                 }
 
-            }else // Caso do dispositivo ser child. Mensagem de credencial de área vinda do root,  atribui e inicia as Tasks que precisam dessa credencial.
+            }else if (len_mqtt_content != 21) // Caso do dispositivo ser child. Mensagem de credencial de área vinda do root,  atribui e inicia as Tasks que precisam dessa credencial.
             {   
                 // count_for_cred => count para obter apenas os caracteres de credencial no laço for
                 for (int start = 0, count_for_cred = 0, i = 0; i < strlen(mqtt_content); i++)
@@ -789,7 +875,7 @@ void esp_mesh_p2p_rx_main(void *arg)
             }
 
 
-        }else if (esp_mesh_is_root()) mqtt_app_publish(mqtt_topic, mqtt_content); // Se não for mensagem especial segue para publish
+        }else if (esp_mesh_is_root() && len_mqtt_content != 21) mqtt_app_publish(mqtt_topic, mqtt_content); // Se não for mensagem especial segue para publish
 
 
         free(mqtt_topic);

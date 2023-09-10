@@ -1,4 +1,4 @@
-# Install script for directory: C:/Espressif/frameworks/prototipo/mesh/components/dht22
+# Install script for directory: C:/Espressif/frameworks/prototipo/smart_device_pandazone/components/dht22
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

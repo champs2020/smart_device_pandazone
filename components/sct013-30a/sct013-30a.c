@@ -12,13 +12,13 @@
 #define ADC_ATTEN ADC_ATTEN_DB_11
 
 //ADC Channels
-// #define ADC1_CHAN4          ADC1_CHANNEL_4 // Plugado
-// #define ADC1_CHAN7          ADC1_CHANNEL_7 // Plugado
-// #define ADC1_CHAN6          ADC1_CHANNEL_6 //Em uso
+#define ADC1_CHAN4          ADC1_CHANNEL_4 // Plugado
+#define ADC1_CHAN7          ADC1_CHANNEL_7 // Plugado
+#define ADC1_CHAN6          ADC1_CHANNEL_6 //Em uso
 
 // #define ADC1_CHAN3          ADC1_CHANNEL_3 // Plugado
 // #define ADC1_CHAN4          ADC1_CHANNEL_4 // Plugado
-#define ADC1_CHAN5          ADC1_CHANNEL_5 //Em uso
+// #define ADC1_CHAN5          ADC1_CHANNEL_5 //Em uso
 
 
 //ADC Calibration
@@ -69,12 +69,12 @@ void init_SCT013()
     // ESP32S3
     // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN3, ADC_ATTEN));
     // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN4, ADC_ATTEN));
-    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN5, ADC_ATTEN));
+    // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN5, ADC_ATTEN));
 
     // ESP32
-    // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN4, ADC_ATTEN));
-    // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN6, ADC_ATTEN));
-    // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN7, ADC_ATTEN));
+    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN4, ADC_ATTEN));
+    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN6, ADC_ATTEN));
+    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN7, ADC_ATTEN));
 }
 
 void get_SCT023_current(float *corrente)
@@ -82,13 +82,13 @@ void get_SCT023_current(float *corrente)
     printf("============================================================i");
         
         aux_adc = 4;
-        for (int j = 2 /*0*/; j < 3; j++)
+        for (int j = 0 /*0*/; j < 3; j++)
         {
             if (j==1) aux_adc++;
             
             for (int i = 0; i < 600; i++)
             {
-                adc_raw[j] = adc1_get_raw(j+3); // ESP32 (aux_adc+j) ADC1_CHAN4, ADC1_CHAN6 e ADC1_CHAN7 | ESP32-S3 (j+3) ADC1_CHAN3, ADC1_CHAN4 e ADC1_CHAN5
+                adc_raw[j] = adc1_get_raw(aux_adc+j); // ESP32 (aux_adc+j) ADC1_CHAN4, ADC1_CHAN6 e ADC1_CHAN7 | ESP32-S3 (j+3) ADC1_CHAN3, ADC1_CHAN4 e ADC1_CHAN5
 
                 if (adc_raw[j] > crista[j])
                 {
@@ -106,7 +106,7 @@ void get_SCT023_current(float *corrente)
 
 
         // Reinicia os valores de vale e crista
-        for (int i = 2 /*0*/; i < 3; i++)
+        for (int i = 0 /*0*/; i < 3; i++)
         {
             vale[i] = esp_adc_cal_raw_to_voltage(vale[i], &adc1_chars);
             crista[i] = esp_adc_cal_raw_to_voltage(crista[i], &adc1_chars);
