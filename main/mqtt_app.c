@@ -31,10 +31,7 @@ char strs[50] = "";
 
 void send_credencial_area(char *topic, char *valor, int *len_data);
 
-void set_mqtt_connected(int sts)
-{
-    IS_MQTT_CONNECTED = sts;
-}
+
 int is_mqtt_connected()
 {
     return IS_MQTT_CONNECTED;
@@ -46,34 +43,18 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
     switch (event->event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            set_mqtt_connected(ESP_OK);
             if (esp_mqtt_client_subscribe(s_client, building_topic_credential, 0) == ESP_FAIL)
             {
                 esp_mqtt_client_disconnect(s_client);
-            }
-
-            // Fazendo subscribe para obter todos os dispositivos cadastradados da edificação
-            // if (esp_mqtt_client_subscribe(s_client, "ufcg/cg_sede/caa/list_mac_devices", 0) < 0)
-            // {
-            //     ESP_LOGE(TAG, "MAC ADRESS NOT SUBSCRIBED. RETRYING ...");
-            //     esp_mqtt_client_disconnect(s_client);
-            // }
-                    
+            }  
             
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/#", 0);
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/temperatura", 0);
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/indice_calor", 0);
-
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/presenca", 0);
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/presenca/trava", 0);
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/presenca/estado_atual", 0);
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/presenca/estado_ultimo", 0);
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/presenca/contagem_tempo", 0);
-
-            // esp_mqtt_client_subscribe(s_client, "ufcg_cg_sede/caa/2/sala2/sensor/corrente", 0);
+            if (esp_mqtt_client_subscribe(s_client, "+/caa/#", 1) > 0)
+            {
+                 ESP_LOGI(TAG, "READY TO COMAND A/C");
+            }
+            
             break;
         case MQTT_EVENT_DISCONNECTED:
-            set_mqtt_connected(ESP_FAIL);
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
             break;
 
@@ -91,14 +72,11 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             ESP_LOGI(TAG, "TOPIC=%.*s, topic_len: %d", event->topic_len, event->topic, event->topic_len);
             ESP_LOGI(TAG, "DATA=%.*s", event->data_len, event->data);
 
-            if ((event->topic_len) == 16) // mqtt_topic == mac/XXxxXXxxXXxx => 16(4+12) caracteres
-            {   
-                if ((int)(event->topic[0]) == 109) // (m == 7) = true
-                {
-                    ESP_LOGW("MQTT","event->data_len: %d, Enviando o código de área (content): %.*s", strlen(event->data), event->data_len, event->data);
-                    send_credencial_area(event->topic, event->data, event->data_len);
-                }
-            }
+            ESP_LOGW("MQTT","event->data_len: %d, Enviando o código de área (content): %.*s", strlen(event->data), event->data_len, event->data);
+            int array_len[2] = {event->topic_len, event->data_len};
+            send_credencial_area(event->topic, event->data, array_len);
+            printf("\nGrad data\n");
+            
 
             break;
         case MQTT_EVENT_ERROR:

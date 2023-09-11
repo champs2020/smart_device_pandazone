@@ -28,11 +28,11 @@ static rmt_channel_t example_tx_channel = 0 /*CONFIG_EXAMPLE_RMT_TX_CHANNEL*/;
  *                Constants
  *******************************************************/
 
-// #define WIFI_SSID "brisa-3287883"
-// #define WIFI_PASS  "2hs5t788"
+#define WIFI_SSID "brisa-3287883"
+#define WIFI_PASS  "2hs5t788"
  
-#define WIFI_SSID "tplinkcaa"
-#define WIFI_PASS  "contadorcaa123"
+// #define WIFI_SSID "tplinkcaa"
+// #define WIFI_PASS  "contadorcaa123"
 
 unsigned char mac_base[6];
 char str_mac_base[13] = "";
@@ -120,9 +120,8 @@ xQueueHandle fila_ittr_presenca_pin_1;
  *******************************************************/
 
 static char format_msg_mqtt[100] = ""; // Ex: ufcg/cg_sede/caa/{area}/sensor/temperatura
-static char  building_id[35] = "ufcg/cg_sede/caa";
 static char  building_area_credencial[35] = "";
-static char any_string[30] = "";
+static char any_string[50] = "";
 static int size_data_mqtt = 0;
 // 
 
@@ -133,6 +132,8 @@ static int size_data_mqtt = 0;
 
 xQueueHandle fila_comando_komeco;
 static u_int8_t air_on_off = 0; // estado
+
+void init_panda_tasks();
 
 // Função que inicializa os pinos para a função blink_command()
 void init_blink_command()
@@ -163,7 +164,7 @@ void send_data_mqtt(char *dispTipo, char *dispNome, char *dispValor, char *area)
     // {
         // Formato [JSON] => {"\"{Nome aqui}\"": {valor numerico aqui}}
         strcpy(format_msg_mqtt, ""); //Zerar endereço
-        sprintf(format_msg_mqtt, "%s/%s/%s/%s|{\"%s\":%s}",building_id, area, dispTipo, dispNome, dispNome, dispValor);
+        sprintf(format_msg_mqtt, "%s/%s/%s|{\"%s\":%s}", area, dispTipo, dispNome, dispNome, dispValor);
     
         size_data_mqtt = strlen(format_msg_mqtt);
 
@@ -189,15 +190,14 @@ void send_data_mqtt(char *dispTipo, char *dispNome, char *dispValor, char *area)
 } 
 
 // Send any complete custom string 
-void send_data_mqtt_string(char *topic, char *valor)
+void mqtt_subscribe_via_root(char *topic)
 {
-    // Formato [JSON] => {"\"{Nome aqui}\"": {valor númerico aqui}}
     strcpy(format_msg_mqtt, ""); //Zerar endereço
-    sprintf(format_msg_mqtt, "%s|{\"0\":%s}", topic, valor);
+    sprintf(format_msg_mqtt, "%s|sub", topic);
    
     size_data_mqtt = strlen(format_msg_mqtt);
 
-    printf("\n%s: %s\n", topic, valor);
+    printf("\n%s\n", topic);
 
     // Preparando dados p/ envio
     esp_err_t err;
@@ -212,53 +212,171 @@ void send_data_mqtt_string(char *topic, char *valor)
     err = esp_mesh_send(NULL, &data_mqtt, MESH_DATA_P2P, NULL, 0);
     if (err == ESP_OK) 
     {
-        ESP_LOGI("MESH", ": Envio /p o PAI com Sucesso");
+        ESP_LOGI("MESH", "Envio /p o PAI com Sucesso: mqtt_subscribe_via_root");
     } else ESP_LOGE("MESH Error",": Sent with ERRO code: %d", err);
 }
 
-// Send only credencial area to child device
-void send_credencial_area(char *topic, char *data, int *len_data)
+// request subscription to topic via root 
+void request_credencial_via_root(char *topic)
 {
-    int lenght_data = len_data;
     // Formato [JSON] => {"\"{Nome aqui}\"": {valor númerico aqui}}
     strcpy(format_msg_mqtt, ""); //Zerar endereço
-    sprintf(format_msg_mqtt, "%.*s|%.*s", 16, topic, lenght_data, data);
-    
-    printf("\n Topic string: %.*s, total len_data: %d\n", 16, topic, lenght_data);
-    printf("\n format_msg_mqtt string: %.*s\n", lenght_data+17, format_msg_mqtt);
+    sprintf(format_msg_mqtt, "%s|", topic);
+   
+    size_data_mqtt = strlen(format_msg_mqtt);
 
-    uint8_t mac_adrr[6] = {0x00,0x00,0x00,0x00,0x00,0x00};
-    uint8_t hex_num = 0;
-    char aux[5] = "";
-    
+    printf("\n%s: vazio pra sub\n", topic);
 
-    for (int h = 4; h < 16; h=h+2) // Comeca do caractere 4 para ler endereço mac correto (mac/xxXXxxXXxxXX)
-    {
-        printf("0x%c%c\n", topic[h], topic[h+1]);
-
-        sprintf(aux,"0x%c%c", topic[h] ,topic[h+1]);
-        
-        hex_num = (uint8_t)strtol(aux, NULL, 16);
-        mac_adrr[((h-4)/2)] = (uint8_t)hex_num;
-
-        strcpy(aux, "");
-    }
-
-    esp_err_t err_mac;
-    mesh_data_t data_mac_device;
-    data_mac_device.data = format_msg_mqtt;
-    data_mac_device.size = lenght_data+17;
-    data_mac_device.proto = MESH_PROTO_BIN;
-    data_mac_device.tos = MESH_TOS_P2P;
+    // Preparando dados p/ envio
+    esp_err_t err;
+    mesh_data_t data_mqtt;
+    data_mqtt.data = format_msg_mqtt;
+    data_mqtt.size = size_data_mqtt;
+    data_mqtt.proto = MESH_PROTO_BIN;
+    data_mqtt.tos = MESH_TOS_P2P;
     is_running = true;
 
-    err_mac = esp_mesh_send(&mac_adrr, &data_mac_device, MESH_DATA_P2P, NULL, 0);
-
-    if (err_mac == ESP_OK) 
+    //  Dispositivo PAI fará o envio para o Servidor
+    err = esp_mesh_send(NULL, &data_mqtt, MESH_DATA_P2P, NULL, 0);
+    if (err == ESP_OK) 
     {
-        ESP_LOGI("MAC", ": sent to mac adress %s with SUCCESS", topic);
+        ESP_LOGI("MESH", "Envio /p o PAI com Sucesso: request_credencial_via_root");
+    } else ESP_LOGE("MESH Error",": Sent with ERRO code: %d", err);
+}
+
+// Send only credencial id to child device
+void send_credencial_area(char *topic, char *data, int *len_array)
+{
+    int lenght_topic = len_array[0];
+    int lenght_data = len_array[1];
+
+    u_int8_t is_not_root = 0;
+    for (int i = 0; i < 6; i++)
+    {
+        if (topic[i] != str_mac_base[i]) is_not_root = 1;
+    }
+    
+    if (is_not_root)
+    {
+        printf("\n if valido: %d\n", is_not_root);
         
-    } else ESP_LOGE("MAC SENT ERROR",": sent with err_mac code: %d", err_mac);
+        printf("\n lenght_topic: %d, lenght_data: %d\n", lenght_topic, lenght_data);
+
+        // Formato [JSON] => {"\"{Nome aqui}\"": {valor númerico aqui}}
+        strcpy(format_msg_mqtt, ""); //Zerar endereço
+        sprintf(format_msg_mqtt, "%.*s|%.*s", lenght_topic, topic, lenght_data, data);
+        
+        printf("\n Topic string: %.*s, total len_topic: %d\n", lenght_topic, topic, lenght_topic);
+        printf("\n format_msg_mqtt string: %.*s\n", strlen(format_msg_mqtt), format_msg_mqtt);
+
+        uint8_t mac_adrr[6] = {0x00,0x00,0x00,0x00,0x00,0x00};
+        uint8_t hex_num = 0;
+        char aux[5] = "";
+        
+
+        for (int h = 0; h < 12; h=h+2) // (mac=xxXXxxXXxxXX)
+        {
+            //printf("0x%c%c\n", topic[h], topic[h+1]);
+            sprintf(aux,"0x%c%c", topic[h] ,topic[h+1]);
+            
+            hex_num = (uint8_t)strtol(aux, NULL, 16); // Transfoma string em inteiro com 16 bit
+            mac_adrr[((h)/2)] = (uint8_t)hex_num;
+
+            strcpy(aux, "");
+        }
+
+        esp_err_t err_mac;
+        mesh_data_t data_mac_device;
+        data_mac_device.data = format_msg_mqtt;
+        data_mac_device.size = strlen(format_msg_mqtt);
+        data_mac_device.proto = MESH_PROTO_BIN;
+        data_mac_device.tos = MESH_TOS_P2P;
+        is_running = true;
+
+        err_mac = esp_mesh_send(&mac_adrr, &data_mac_device, MESH_DATA_P2P, NULL, 0);
+
+        if (err_mac == ESP_OK) 
+        {
+            ESP_LOGI("MAC", ": sent to mac adress %s with SUCCESS", topic);
+            
+        } else ESP_LOGE("MAC SENT ERROR",": sent with err_mac code: %d", err_mac);
+        
+    } else 
+    {
+        ESP_LOGW("ESP ROOT","...");
+        if (lenght_topic == 15) // valor == "", logo lenght é 0
+        {
+            // count_for_cred => count para obter apenas os caracteres de credencial no laço for
+            for (int start = 0, count_for_cred = 0, i = 0; i < lenght_data; i++)
+            {
+                if (data[i] == 34) // Aqui indentifica " (aspas) pelo código da tabela ASCCII
+                {
+                    start = i+1; // Posição seguinte a aspas começa o caractere útil da credencial
+                    count_for_cred++;
+                }
+                // Quando chega na 4º aspas encerra a leitura fechando a string com \0 e saindo do for com break. a ordem dos if importa.
+                if(count_for_cred == 4) 
+                {
+                    building_area_credencial[i] = "\0";
+                    break;
+                } 
+                // Na 3º aspas começa a leitura da credencial
+                if(count_for_cred == 3) building_area_credencial[i-start] = data[i];
+                
+            }
+            strcpy(any_string, ""); //Zerar string
+            sprintf(any_string,"%s/%s/#",str_mac_base, building_area_credencial); // O device poderá receber qualquer tópico de seu interesse
+            if ( mqtt_app_subscribe(any_string, 1) > -1) ESP_LOGW("MQTT","credencial subscribed! topic: %s \n", any_string);
+                
+            ESP_LOGW("CREDENCIAL","Área assigned: %s, Initiating Tasks ...", building_area_credencial);
+            init_panda_tasks();
+        }
+
+
+        if (lenght_data > 0)
+        {
+            int  grab = 0;
+            for (int i = 0; i < lenght_topic; i++)
+            {
+                if (topic[i] == 47) grab = i; // Aqui indentifica "/" (barra) pelo código da tabela ASCCII
+            }
+
+            if (topic[grab+1] == 'a' && topic[grab+2] == 'c') // Caso o tópico termine com .../ca (comando de A/C)
+            {
+                ESP_LOGI("KOMECO","in!");
+                // count_for_cred => count para obter apenas os caracteres de credencial no laço for
+                for (int count_for_cred = 0, i = 0; i < lenght_data; i++)
+                {
+                    if (data[i] == 34) // Aqui indentifica " (aspas) pelo código da tabela ASCCII
+                    {
+                        count_for_cred++;
+                    }
+                    // Quando chega na 4º aspas encerra a leitura atribuindo a string da posição seguinte da aspas e sai do for com break.
+                    if(count_for_cred == 3) 
+                    {
+                        ESP_LOGI("KOMECOs","%c, %c", data[i+1], data[i+2]);
+                        if (data[i+1] == 'o' && data[i+2] == 'n')
+                        {
+                            air_on_off = 1;
+                            xQueueSendFromISR(fila_comando_komeco, &air_on_off , NULL);
+                        }
+                         else 
+                        {
+                            air_on_off = 0;
+                            xQueueSendFromISR(fila_comando_komeco, &air_on_off , NULL);
+                        }
+                        break;
+                    } 
+                    
+                }
+            }
+            
+
+        }
+
+    }
+    
+
     
     
         
@@ -308,7 +426,7 @@ void DHT_task(void *pvParameter)
         temperatura = getTemperature();
         heatIndex = heat_index(temperatura, umidade);
 
-        printf("\n\nUmidade[anterior]: %.2f\nUmidade[depois]: %.2f\nTemperatura[anterior]: %.2f\nTemperatura[depois]: %.2f\n\n", umidadeBefore, umidade, temperaturaBefore, temperatura);
+        //printf("\n\nUmidade[anterior]: %.2f\nUmidade[depois]: %.2f\nTemperatura[anterior]: %.2f\nTemperatura[depois]: %.2f\n\n", umidadeBefore, umidade, temperaturaBefore, temperatura);
 
         if ((temperatura - temperaturaBefore) >= 3) fire_alert_count++;
         if ((umidade - umidadeBefore) <= 5) fire_alert_count++;
@@ -336,7 +454,7 @@ void DHT_task(void *pvParameter)
 
         send_data_mqtt("sensor", "umidade", umiString, building_area_credencial);
         
-        send_data_mqtt("sensor", "temperatura.", tempString, building_area_credencial);
+        send_data_mqtt("sensor", "temperatura", tempString, building_area_credencial);
 
         send_data_mqtt("sensor", "indice_calor", heatIndexString, building_area_credencial);
 
@@ -733,7 +851,7 @@ void init_panda_tasks()
     // xTaskCreate(&saying_in_out, "AvisoEntradaSaida", 2048, NULL, 1, NULL);
     // xTaskCreate(&procress_presence, "TrataPresenca", 2048, NULL, 1, NULL);
     // xTaskCreate(&regulator_master_hc, "ReguladorHC501", 2048, NULL, 1, NULL);
-    //xTaskCreate(&air_control, "ac_control", 4096, NULL, 2, NULL);
+    xTaskCreate(&air_control, "ac_control", 4096, NULL, 2, NULL);
 }
 
 void esp_mesh_p2p_rx_main(void *arg)
@@ -792,35 +910,90 @@ void esp_mesh_p2p_rx_main(void *arg)
         int len_mqtt_topic = strlen(mqtt_topic);
         int len_mqtt_content = strlen(mqtt_content);
 
+        ESP_LOGE(MESH_TAG, "Data RX COMING IN : %d, %d", len_mqtt_topic, len_mqtt_content);
+
         printf("\n len=%d, mqtt_topic=%s, mac_base=%s, mqtt_content=%s\n", len_mqtt_topic, mqtt_topic, str_mac_base, mqtt_content);
 
         // Toda mensagem que chega é avalida pra chechar se é requisição de subscribe de algum dispositivo para credenciamento
-        if (len_mqtt_topic == 16 && mqtt_topic[0] == 109) // mqtt_topic == mac/XXxxXXxxXXxx => 16(4+12) caracteres
+        
+        // Obter a ID de credecnial - Empacotr numa função
+        if (len_mqtt_topic == 15 && len_mqtt_content > 0) // valor == "", logo lenght é 0
         {
-            ESP_LOGW("CHECK","AREA DE CREDENCIAL!, content length: %d \n", len_mqtt_content);
-
-            ////////////////////////////////////////////
-            if (len_mqtt_content == 21) // se len_mqtt_topic == errado7+6 && mqtt_topic[0] == "c"
+            // count_for_cred => count para obter apenas os caracteres de credencial no laço for
+            for (int start = 0, count_for_cred = 0, i = 0; i < strlen(mqtt_content); i++)
             {
-                ESP_LOGW("KOMECO","COMANDO!");
-                ESP_LOGW("KOMECO","mqtt_content: %s", mqtt_content);
+                if (mqtt_content[i] == 34) // Aqui indentifica " (aspas) pelo código da tabela ASCCII
+                {
+                    start = i+1; // Posição seguinte a aspas começa o caractere útil da credencial
+                    count_for_cred++;
+                }
+                // Quando chega na 4º aspas encerra a leitura fechando a string com \0 e saindo do for com break. a ordem dos if importa.
+                if(count_for_cred == 4) 
+                {
+                    building_area_credencial[i] = "\0";
+                    break;
+                } 
+                // Na 3º aspas começa a leitura da credencial
+                if(count_for_cred == 3) building_area_credencial[i-start] = mqtt_content[i];
+                
+            }
+            strcpy(any_string, ""); //Zerar string
+            sprintf(any_string,"%s/%s/#",str_mac_base, building_area_credencial); // O device poderá receber qualquer tópico de seu interesse
+            ESP_LOGW("CREDENCIAL","Área assigned: %s, Initiating Tasks ...", building_area_credencial);
+            init_panda_tasks();
+           
+            // OBS: fazer subscribe por cada dispositivo não é bom, pois caso o root reinicie rapidamente irá perder todos as subscrições
+            
+        }
+
+        // Subscribe no Mac Topic p/ receber credencial
+        if (len_mqtt_content == 0) // valor == "", logo lenght é 0
+        {
+            vTaskDelay(5000 / portTICK_RATE_MS);
+            if ( mqtt_app_subscribe(mqtt_topic, 1) > -1)
+            {
+                ESP_LOGW("MQTT","Device subscribed! \n");
+
+            }
+            else
+            {
+                // Caso ocorra falha, uma nova tentativa é acionada
+                ESP_LOGW("MQTT Sub falha","Nova tentativa! \n");
+                vTaskDelay(4000 / portTICK_RATE_MS);
+                if ( mqtt_app_subscribe(mqtt_topic, 1) > -1)
+                {
+                    ESP_LOGW("MQTT","AREA subscribed! \n");
+                }
+            }
+        }
+        else
+        {
+            int  grab = 0;
+            for (int i = 0; i < len_mqtt_topic; i++)
+            {
+                if (mqtt_topic[i] == 47) grab = i; // Aqui indentifica "/" (barra) pelo código da tabela ASCCII
+            }
+
+            if (mqtt_topic[grab+1] == 'a' && mqtt_topic[grab+2] == 'c') // Caso o tópico termine com .../ca (comando de A/C)
+            {
+                ESP_LOGI("KOMECO","in!");
                 // count_for_cred => count para obter apenas os caracteres de credencial no laço for
                 for (int count_for_cred = 0, i = 0; i < len_mqtt_content; i++)
                 {
                     if (mqtt_content[i] == 34) // Aqui indentifica " (aspas) pelo código da tabela ASCCII
                     {
                         count_for_cred++;
-                        if(count_for_cred == 4) printf("\ncatch\n");
                     }
                     // Quando chega na 4º aspas encerra a leitura atribuindo a string da posição seguinte da aspas e sai do for com break.
-                    if(count_for_cred == 4) 
+                    if(count_for_cred == 3) 
                     {
-                        ESP_LOGW("KOMECO","mqtt_content: %c", mqtt_content[i-1]);
-                        if (mqtt_content[i-1] == 49)
+                        ESP_LOGI("KOMECOs","%c, %c", mqtt_content[i+1], mqtt_content[i+2]);
+                        if (mqtt_content[i+1] == 'o' && mqtt_content[i+2] == 'n')
                         {
                             air_on_off = 1;
                             xQueueSendFromISR(fila_comando_komeco, &air_on_off , NULL);
-                        } else 
+                        }
+                         else 
                         {
                             air_on_off = 0;
                             xQueueSendFromISR(fila_comando_komeco, &air_on_off , NULL);
@@ -830,52 +1003,11 @@ void esp_mesh_p2p_rx_main(void *arg)
                     
                 }
             }
-            ///////////////////////////////////////////
+            else if(esp_mesh_is_root()) mqtt_app_publish(mqtt_topic, mqtt_content);
 
-            if (len_mqtt_content == 6) // JSON vazio ocupa 6 caracteres da formatação => {"0":}
-            {
-                vTaskDelay(5000 / portTICK_RATE_MS);
-                if ( mqtt_app_subscribe(mqtt_topic, 1) > -1)
-                {
-                    ESP_LOGW("MQTT","AREA subscribed! \n");
-
-                } else
-                {
-                    // Caso ocorra falha, uma nova tentativa é acionada
-                    vTaskDelay(5000 / portTICK_RATE_MS);
-                    if ( mqtt_app_subscribe(mqtt_topic, 1) > -1)
-                    {
-                        ESP_LOGW("MQTT","AREA subscribed! \n");
-                    }
-                }
-
-            }else if (len_mqtt_content != 21) // Caso do dispositivo ser child. Mensagem de credencial de área vinda do root,  atribui e inicia as Tasks que precisam dessa credencial.
-            {   
-                // count_for_cred => count para obter apenas os caracteres de credencial no laço for
-                for (int start = 0, count_for_cred = 0, i = 0; i < strlen(mqtt_content); i++)
-                {
-                    if (mqtt_content[i] == 34) // Aqui indentifica " (aspas) pelo código da tabela ASCCII
-                    {
-                        start = i+1; // Posição seguinte a aspas começa o caractere útil da credencial
-                        count_for_cred++;
-                    }
-                    // Quando chega na 4º aspas encerra a leitura fechando a string com \0 e saindo do for com break. a ordem dos if importa.
-                    if(count_for_cred == 4) 
-                    {
-                        building_area_credencial[i] = "\0";
-                        break;
-                    } 
-                    // Na 3º aspas começa a leitura da credencial
-                    if(count_for_cred == 3) building_area_credencial[i-start] = mqtt_content[i];
-                    
-                }
-                
-                ESP_LOGW("CREDENCIAL","Área assigned: %s, Initiating Tasks ...", building_area_credencial);
-                init_panda_tasks();
-            }
-
-
-        }else if (esp_mesh_is_root() && len_mqtt_content != 21) mqtt_app_publish(mqtt_topic, mqtt_content); // Se não for mensagem especial segue para publish
+        }
+            
+      
 
 
         free(mqtt_topic);
@@ -921,13 +1053,13 @@ void check_connection(void *pvParameter)
         vTaskDelay(5000 / portTICK_RATE_MS);
         blink_command(2);
         ESP_LOGI("CREDENCIAL", "Checando credencial do dispositivo ... , %s", building_area_credencial);
-        if (strlen(building_area_credencial) == 0 /*&& esp_mesh_is_root() == 0*/)
+        if (strlen(building_area_credencial) == 0)
         {
             ESP_LOGI("CHECK", "Entrou no check_connection, %s", building_area_credencial);
-            // A solicitação é enviada para o root processar com o servidor mqtt
+            // A solicitação é encaminhada para o root e então enviado p/ o servidor mqtt para busca o id dste mac adress
             strcpy(any_string, ""); //Zerar string
-            sprintf(any_string,"mac/%s",str_mac_base);
-            send_data_mqtt_string(any_string,  "");
+            sprintf(any_string,"%s/id",str_mac_base);
+            request_credencial_via_root(any_string);
         
         } else ESP_LOGI("CREDENCIAL", "credencial OK, %s", building_area_credencial);
     
@@ -1192,17 +1324,6 @@ void app_main(void)
 
     semaphorBinarioA = xSemaphoreCreateBinary();
     semaphorBinarioB = xSemaphoreCreateBinary();
-
-
-    // Configurar o resistor do Pull-up por segurança
-    // gpio_pulldown_en(PIN_OUTPUT); // parece q esse PIN_OUTPUT é referente ao buzzer
-    // gpio_pullup_dis(PIN_OUTPUT);
-    // gpio_pulldown_en(PIN_INPUT_0);
-    // gpio_pullup_dis(PIN_INPUT_0);
-    // gpio_pulldown_en(PIN_INPUT_1);
-    // gpio_pullup_dis(PIN_INPUT_1);
-    // gpio_pulldown_en(PIN_INPUT_2);
-    // gpio_pullup_dis(PIN_INPUT_2);
 
     ESP_ERROR_CHECK(nvs_flash_init());
     /*  tcpip initialization */
