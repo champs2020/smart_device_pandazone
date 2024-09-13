@@ -1,0 +1,10 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+    "$id": "http://dl.espressif.com/dl/schemas/esp_idf",
+    "_comment": "Configuration file for ESP-IDF Eclipse plugin.",
+    "_warning": "Use / or \\ when specifying path. Single backslash is not allowed by JSON format.",
+    "gitPath": "C:/Espressif/tools/idf-git/2.43.0/cmd/git.exe",
+    "idfToolsPath": "C:\\Users\\Champs/.espressif",
+    "idfSelectedId": "",
+    "idfInstalled": {}
+}

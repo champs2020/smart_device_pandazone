@@ -23,7 +23,7 @@ void ConvertByteToMideaRmtValues(uint8_t byteValue, int16_t rmtValues[], int16_t
 
     for (int8_t j = 7; j >= 0; j--)
     {
-        currentIndex++;
+        currentIndex++; // avança para a posição de iniciar a inserção
         rmtValues[currentIndex] = 1*PULSE_LENGTH; // 1T pulse
         currentIndex++;
 
@@ -55,7 +55,7 @@ void ConvertRmtValuesToRmtObjects(int16_t rmtValues[], int16_t rmtValuesCount, r
             rmtObjects[rmtObjectsIndex].level0 = (rmtValues[i] > 0) ? 0 : 1;
             isFirstPartOfRmtObjectOccupied = true;
 
-            rmtObjects[rmtObjectsIndex].duration1 = 0;
+            rmtObjects[rmtObjectsIndex].duration1 = 0; // Logo, duration1 e level1 não tem efeito
             rmtObjects[rmtObjectsIndex].level1 = 0;
         }
         else
@@ -177,7 +177,7 @@ void encoder_protocol(uint8_t data[], uint8_t lengthOfData, rmt_item32_t rmtObje
 }
 
 
-/* Send the message using RMT */
+/* Send the message using RMT */ // lengthOfData = n° de bytes recebendo
 void rmt_midea_ir_tx_send_raw_message(uint8_t data[], uint8_t lengthOfData)
 {
     //  [ffff ssss] [ttttcccc]
@@ -193,7 +193,7 @@ void rmt_midea_ir_tx_send_raw_message(uint8_t data[], uint8_t lengthOfData)
     
     
     int16_t rmtValues[200] = { 0 };
-    int16_t rmtValueIndex = 1;
+    int16_t rmtValueIndex = 1; // &rmtValueIndex = endereço memória
 
     // #pragma region Add the whole message to the RmtArray for the first time
 

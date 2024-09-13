@@ -63,6 +63,7 @@
 
 #define TEMP_LOW  17
 #define TEMP_HIGH 30
+#define PIN_AC 4
 
 // Table to convert temperature in Celsius to a strange Midea AirCon values
 const static uint8_t temperature_table[] = {

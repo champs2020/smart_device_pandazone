@@ -1,126 +1,241 @@
 #include <stdio.h>
-#include "sct013-30a.h"
-
 #include <stdlib.h>
-#include "esp_log.h"
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/adc.h"
-#include "esp_adc_cal.h"
+#include "soc/soc_caps.h"
+#include "esp_log.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
-// ADC attenutation
-#define ADC_ATTEN ADC_ATTEN_DB_11
+const static char *TAG = "EXAMPLE";
 
-//ADC Channels
-#define ADC1_CHAN4          ADC1_CHANNEL_4 // Plugado
-#define ADC1_CHAN7          ADC1_CHANNEL_7 // Plugado
-#define ADC1_CHAN6          ADC1_CHANNEL_6 //Em uso
+/*---------------------------------------------------------------
+        ADC General Macros
+---------------------------------------------------------------*/
+#define MCU_TARGET_ESP32 1
+#define MCU_TARGET_ESP32S3 3
 
-// #define ADC1_CHAN3          ADC1_CHANNEL_3 // Plugado
-// #define ADC1_CHAN4          ADC1_CHANNEL_4 // Plugado
-// #define ADC1_CHAN5          ADC1_CHANNEL_5 //Em uso
-
-
-//ADC Calibration
+//ADC1 Channels
 #if CONFIG_IDF_TARGET_ESP32
-#define ADC_EXAMPLE_CALI_SCHEME     ESP_ADC_CAL_VAL_EFUSE_VREF
+#define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_4
+#define EXAMPLE_ADC1_CHAN1          ADC_CHANNEL_5
+#define MCU_TARGET                ADC_MCU_TYPE_ESP32
 #elif CONFIG_IDF_TARGET_ESP32S3
-#define ADC_EXAMPLE_CALI_SCHEME     ESP_ADC_CAL_VAL_EFUSE_TP_FIT
+#define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_2 // IO4 // Sentido: esquerda -> direita
+#define EXAMPLE_ADC1_CHAN1          ADC_CHANNEL_7 // IO3
+#define EXAMPLE_ADC1_CHAN2          ADC_CHANNEL_8 // IO9
+#define EXAMPLE_ADC1_CHAN3          ADC_CHANNEL_9 // IO10
+#define EXAMPLE_ADC_ATTEN           ADC_ATTEN_DB_12
+#define MCU_TARGET                  MCU_TARGET_ESP32S3
+#else
+#define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_0
+#define EXAMPLE_ADC1_CHAN1          ADC_CHANNEL_1
+#define EXAMPLE_ADC1_CHAN2          ADC_CHANNEL_2
+#define EXAMPLE_ADC1_CHAN3          ADC_CHANNEL_3
+#define EXAMPLE_ADC_ATTEN           ADC_ATTEN_DB_12
+#define MCU_TARGET                MCU_TARGET_ESP32S3
 #endif
 
-static const char *TAG = "ADC SINGLE";
-static bool cali_enable = false;
-static esp_adc_cal_characteristics_t adc1_chars;
+#if (SOC_ADC_PERIPH_NUM >= 2) && !CONFIG_IDF_TARGET_ESP32C3
+/**
+ * On ESP32C3, ADC2 is no longer supported, due to its HW limitation.
+ * Search for errata on espressif website for more details.
+ */
+#define EXAMPLE_USE_ADC2            1
+#endif
 
-static int adc_raw[3], aux_adc, picoPico;
-int vale[3] = {4096,4096,4096}; // O valor inicial de comparação 4096 é p/ achar achar o Menor valor
-int crista[3] = {0,0,0}; // O valor inicial de comparação 0 é p/ achar achar o Maior valor
+#if EXAMPLE_USE_ADC2
+//ADC2 Channels
+#if CONFIG_IDF_TARGET_ESP32
+#define EXAMPLE_ADC2_CHAN0          ADC_CHANNEL_0
+#else
+#define EXAMPLE_ADC2_CHAN0          ADC_CHANNEL_0
+#endif
+#endif  //#if EXAMPLE_USE_ADC2
+
+
+
+static int adc_raw[10];
+static int voltage[10];
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
+static void example_adc_calibration_deinit(adc_cali_handle_t handle);
+////////////
+static bool do_calibration1_chan0 = 0;
+static bool do_calibration1_chan1 = 0;
+static bool do_calibration1_chan2 = 0;
+static bool do_calibration1_chan3 = 0;
+
+adc_oneshot_unit_handle_t adc1_handle;
+adc_oneshot_unit_init_cfg_t init_config1 = {
+    .unit_id = ADC_UNIT_1,
+};
+
+adc_cali_handle_t adc1_cali_chan0_handle = NULL;
+adc_cali_handle_t adc1_cali_chan1_handle = NULL;
+adc_cali_handle_t adc1_cali_chan2_handle = NULL;
+adc_cali_handle_t adc1_cali_chan3_handle = NULL;
+
+
+///////////
+
+static int channels[4] = {EXAMPLE_ADC1_CHAN0, EXAMPLE_ADC1_CHAN1, EXAMPLE_ADC1_CHAN2, EXAMPLE_ADC1_CHAN3};
+static int picoPico;
+static int value[3];
+int vale[4] = {4096,4096,4096}; // O valor inicial de comparação 4096 é p/ achar achar o Menor valor
+int crista[4] = {0,0,0}; // O valor inicial de comparação 0 é p/ achar achar o Maior valor
 float pico, rms, potencia;
-//float corrente[3];
-static bool adc_calibration_init(void)
-{
-    esp_err_t ret;
-    bool cali_enable = false;
+float current;
+float currentes[4] = {1,2,3,4};
 
-    ret = esp_adc_cal_check_efuse(ADC_EXAMPLE_CALI_SCHEME);
-    if (ret == ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGW(TAG, "Calibration scheme not supported, skip software calibration");
-    } else if (ret == ESP_ERR_INVALID_VERSION) {
+/*---------------------------------------------------------------
+        ADC Calibration
+---------------------------------------------------------------*/
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle)
+{
+    adc_cali_handle_t handle = NULL;
+    esp_err_t ret = ESP_FAIL;
+    bool calibrated = false;
+
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    if (!calibrated) {
+        ESP_LOGI(TAG, "calibration scheme version is %s", "Curve Fitting");
+        adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .chan = channel,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_curve_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
+        }
+    }
+#endif
+
+#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    if (!calibrated) {
+        ESP_LOGI(TAG, "calibration scheme version is %s", "Line Fitting");
+        adc_cali_line_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_line_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
+        }
+    }
+#endif
+
+    *out_handle = handle;
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Calibration Success");
+    } else if (ret == ESP_ERR_NOT_SUPPORTED || !calibrated) {
         ESP_LOGW(TAG, "eFuse not burnt, skip software calibration");
-    } else if (ret == ESP_OK) {
-        cali_enable = true;
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, 0, &adc1_chars);
     } else {
-        ESP_LOGE(TAG, "Invalid arg");
+        ESP_LOGE(TAG, "Invalid arg or no memory");
     }
 
-    return cali_enable;
+    return calibrated;
 }
+
+static void example_adc_calibration_deinit(adc_cali_handle_t handle)
+{
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    ESP_LOGI(TAG, "deregister %s calibration scheme", "Curve Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_curve_fitting(handle));
+
+#elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    ESP_LOGI(TAG, "deregister %s calibration scheme", "Line Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_line_fitting(handle));
+#endif
+}
+
+
+
 
 void init_SCT013()
 {
-    bool cali_enable = adc_calibration_init();
-
-    if (cali_enable) printf("\ninit_SCT013: CALIBRADO!\n");
+    //-------------ADC1 Init---------------//
     
-    //ADC1 config
-    ESP_ERROR_CHECK(adc1_config_width(ADC_WIDTH_BIT_12));
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
 
-    // ESP32S3
-    // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN3, ADC_ATTEN));
-    // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN4, ADC_ATTEN));
-    // ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN5, ADC_ATTEN));
+    //-------------ADC1 Config---------------//
+    adc_oneshot_chan_cfg_t config = {
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+        .atten = EXAMPLE_ADC_ATTEN,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, EXAMPLE_ADC1_CHAN0, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, EXAMPLE_ADC1_CHAN1, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, EXAMPLE_ADC1_CHAN2, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, EXAMPLE_ADC1_CHAN3, &config));
 
-    // ESP32
-    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN4, ADC_ATTEN));
-    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN6, ADC_ATTEN));
-    ESP_ERROR_CHECK(adc1_config_channel_atten(ADC1_CHAN7, ADC_ATTEN));
+    //-------------ADC1 Calibration Init---------------//
+    do_calibration1_chan0 = example_adc_calibration_init(ADC_UNIT_1, EXAMPLE_ADC1_CHAN0, EXAMPLE_ADC_ATTEN, &adc1_cali_chan0_handle);
+    do_calibration1_chan1 = example_adc_calibration_init(ADC_UNIT_1, EXAMPLE_ADC1_CHAN1, EXAMPLE_ADC_ATTEN, &adc1_cali_chan1_handle);
+    do_calibration1_chan2 = example_adc_calibration_init(ADC_UNIT_1, EXAMPLE_ADC1_CHAN2, EXAMPLE_ADC_ATTEN, &adc1_cali_chan2_handle);
+    do_calibration1_chan3 = example_adc_calibration_init(ADC_UNIT_1, EXAMPLE_ADC1_CHAN3, EXAMPLE_ADC_ATTEN, &adc1_cali_chan3_handle);
+    
 }
 
-void get_SCT023_current(float *corrente)
+float *get_SCT023_current()
 {
-    printf("============================================================i");
+   
+    printf("============================================================\n");
         
-        aux_adc = 4;
-        for (int j = 0 /*0*/; j < 3; j++)
+        for (int j = 0 ; j < 4; j++)
         {
-            if (j==1) aux_adc++;
-            
-            for (int i = 0; i < 600; i++)
+            for (int i = 0; i < 360; i++)
             {
-                adc_raw[j] = adc1_get_raw(aux_adc+j); // ESP32 (aux_adc+j) ADC1_CHAN4, ADC1_CHAN6 e ADC1_CHAN7 | ESP32-S3 (j+3) ADC1_CHAN3, ADC1_CHAN4 e ADC1_CHAN5
-
-                if (adc_raw[j] > crista[j])
+                adc_oneshot_read(adc1_handle, channels[j], &adc_raw[j]);
+            
+                switch (channels[j])
                 {
-                    crista[j] = adc_raw[j];
+                case EXAMPLE_ADC1_CHAN0:
+                    adc_cali_raw_to_voltage(adc1_cali_chan0_handle, adc_raw[j], &value[j]);
+                    break;
+                case EXAMPLE_ADC1_CHAN1:
+                    adc_cali_raw_to_voltage(adc1_cali_chan1_handle, adc_raw[j], &value[j]);
+                    break;
+                case EXAMPLE_ADC1_CHAN2:
+                    adc_cali_raw_to_voltage(adc1_cali_chan2_handle, adc_raw[j], &value[j]);
+                    break;
+                case EXAMPLE_ADC1_CHAN3:
+                    adc_cali_raw_to_voltage(adc1_cali_chan3_handle, adc_raw[j], &value[j]);
+                    break;
+                
+                default:
+                    break;
                 }
                 
-                if (adc_raw[j] < vale[j])
+                
+                if (value[j] > crista[j])
                 {
-                    vale[j] = adc_raw[j];
+                    crista[j] = value[j];
                 }
-            }   
-        }
-
-        printf("\n");
-
-
-        // Reinicia os valores de vale e crista
-        for (int i = 0 /*0*/; i < 3; i++)
-        {
-            vale[i] = esp_adc_cal_raw_to_voltage(vale[i], &adc1_chars);
-            crista[i] = esp_adc_cal_raw_to_voltage(crista[i], &adc1_chars);
-            picoPico = crista[i] - vale[i];
+                if (value[j] < vale[j])
+                {
+                    vale[j] = value[j];
+                }
+                
+            }  
+            ESP_LOGI("[CALIBRATED]", "vale[%d]: %d, crista[%d]: %d--", j, vale[j], j, crista[j]);
+            
+            picoPico = crista[j] - vale[j];
             pico = picoPico / 2;
-            if(picoPico <= 10) pico = 0;
-            rms = pico / 1.41421356;
-            corrente[i] = rms / 110;
-            potencia = corrente[i] * 220;
+            if(picoPico < 20) pico = 0;
+            rms = pico / 1.41421356; // mA
+            current = 2*(rms / 36); // corrente real medida (Ampere) | R = 36 ohm
+            potencia = current * 220;
 
-            ESP_LOGI("[CALIBRATED]", "vale[%d]: %d, crista[%d]: %d, Pico a Pico: %d mV, Pico: %.2f mV, RMS: %.2f mV, Corrente %.2f mA, Potência: %.2f W \n--", i, vale[i], i, crista[i], picoPico, pico, rms, corrente[i] *1000, potencia);
-
-            crista[i] = 0;
-            vale[i] = 4096;
+            ESP_LOGI("[CALIBRATED]", "vale[%d]: %d, crista[%d]: %d, Pico a Pico: %d mV, Pico: %.2f mV, RMS: %.2f mV, corrente (mA): %.3f, potencia: %f \n", j,
+            vale[j], j, crista[j], picoPico, pico, rms, current, potencia);
+        
+        currentes[j] = current;
+        crista[j] = 0, vale[j] = 4096;
         }
+    return currentes;
 }
 

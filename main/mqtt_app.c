@@ -1,14 +1,18 @@
 #include <string.h>
-#include "esp_log.h"
+#include "esp_event.h"
+
 #include "esp_system.h"
 #include "esp_netif.h"
+
 #include "esp_tls.h"
 
 #include "lwip/sockets.h"
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
 
+#include "esp_log.h"
 #include "mqtt_client.h" 
+    
 
 extern const uint8_t client_cert_pem_start[] asm("_binary_client_crt_start");
 extern const uint8_t client_cert_pem_end[] asm("_binary_client_crt_end");
@@ -24,8 +28,8 @@ static const char *TAG = "mesh_mqtt";
 static esp_mqtt_client_handle_t s_client = NULL;
 
 // Tópic para acessar todos os dispositivos da edificação
-static const char building_topic_credential[35] = "ufcg/cg_sede/caa";
-int len_building_topic_credential;
+// static const char building_topic_credential[35] = "ufcg/cg_sede/caa";
+// int len_building_topic_credential;
 int is_ok_send_credencials = 1;
 char strs[50] = "";
 
@@ -42,16 +46,8 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
 {
     switch (event->event_id) {
         case MQTT_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            if (esp_mqtt_client_subscribe(s_client, building_topic_credential, 0) == ESP_FAIL)
-            {
-                esp_mqtt_client_disconnect(s_client);
-            }  
-            
-            if (esp_mqtt_client_subscribe(s_client, "+/caa/#", 1) > 0)
-            {
-                 ESP_LOGI(TAG, "READY TO COMAND A/C");
-            }
+            ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED"); 
+            if (esp_mqtt_client_subscribe(s_client, "+/", 1) > 0) ESP_LOGI(TAG, "READY TO COMAND A/C");
             
             break;
         case MQTT_EVENT_DISCONNECTED:
@@ -60,6 +56,7 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
 
         case MQTT_EVENT_SUBSCRIBED:
             ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+            ESP_LOGI(TAG, "TOPIC=%.*s, topic_len: %d", event->topic_len, event->topic, event->topic_len);
             break;
         case MQTT_EVENT_UNSUBSCRIBED:
             ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
@@ -75,7 +72,7 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             ESP_LOGW("MQTT","event->data_len: %d, Enviando o código de área (content): %.*s", strlen(event->data), event->data_len, event->data);
             int array_len[2] = {event->topic_len, event->data_len};
             send_credencial_area(event->topic, event->data, array_len);
-            printf("\nGrad data\n");
+            ESP_LOGI(TAG, "\nGrad data\n");
             
 
             break;
@@ -90,7 +87,7 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
 }
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
-    ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%d", base, event_id);
+    ESP_LOGI(TAG, "Event dispatched from event loop base=%s, event_id=%ld", base, event_id);
     mqtt_event_handler_cb(event_data);
 }
 
@@ -113,13 +110,43 @@ int mqtt_app_subscribe(char* topic, int qos)
 
 int mqtt_app_start(void)
 {
-    int retorno;
+    int retorno = 0;
+
     const esp_mqtt_client_config_t mqtt_cfg = {
-        .uri = "mqtts://apx41ilnb808f-ats.iot.us-east-1.amazonaws.com:8883",
-        .client_cert_pem = (const char *)client_cert_pem_start,
-        .client_key_pem = (const char *)client_key_pem_start,
-        .cert_pem = (const char *)server_cert_pem_start,
+        .broker.address.uri = "mqtts://apx41ilnb808f-ats.iot.us-east-1.amazonaws.com:8883",
+        .broker.verification.certificate = (const char *)server_cert_pem_start,
+        .credentials = {
+        .authentication = {
+            .certificate = (const char *)client_cert_pem_start,
+            .key = (const char *)client_key_pem_start,
+            },
+        }
     };
+
+#if CONFIG_BROKER_URL_FROM_STDIN
+    char line[128];
+
+    if (strcmp(mqtt_cfg.broker.address.uri, "FROM_STDIN") == 0) {
+        int count = 0;
+        printf("Please enter url of mqtt broker\n");
+        while (count < 128) {
+            int c = fgetc(stdin);
+            if (c == '\n') {
+                line[count] = '\0';
+                break;
+            } else if (c > 0 && c < 127) {
+                line[count] = c;
+                ++count;
+            }
+            vTaskDelay(10 / portTICK_PERIOD_MS);
+        }
+        mqtt_cfg.broker.address.uri = line;
+        printf("Broker url: %s\n", line);
+    } else {
+        ESP_LOGE(TAG, "Configuration mismatch: wrong broker url");
+        abort();
+    }
+#endif /* CONFIG_BROKER_URL_FROM_STDIN */ 
 
     s_client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID, mqtt_event_handler, s_client);
