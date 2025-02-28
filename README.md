@@ -19,7 +19,18 @@ Features Demonstrated
 
 - other nodes receive
 
-Open project configuration menu (`idf.py menuconfig`) to configure the mesh network channel, router SSID, router password and mesh softAP settings.
+- Temperature measurement
+
+- Huminity measurement
+
+- Presence detection
+
+- Currente e voltage measurement
+
+- Broker connection
+
+- RTOS implemented
+
 
 When the mesh network is established and if you happen to run this example on ESP-WROVER-KIT boards, the RGB light indicator will show you on which layer devices are.
 The pink reprents root; the yellow reprents layer 2; the red reprents layer 3; the blue reprents layer 4; the green reprents layer 5; the white reprents layer greater than 5.
